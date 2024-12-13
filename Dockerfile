@@ -38,21 +38,19 @@ COPY . /app
 COPY .env.example /app/.env
 
 # Install pip packages
-RUN --mount=type=ssh  \
-    --mount=type=cache,target=/root/.cache/pip  \
-    pip install -e "libs/kotaemon" \
+RUN pip install -e "libs/kotaemon" \
     && pip install -e "libs/ktem" \
     && pip install "pdfservices-sdk@git+https://github.com/niallcm/pdfservices-python-sdk.git@bump-and-unfreeze-requirements"
 
-RUN --mount=type=ssh  \
-    --mount=type=cache,target=/root/.cache/pip  \
-    if [ "$TARGETARCH" = "amd64" ]; then pip install "graphrag<=0.3.6" future; fi
+RUN if [ "$TARGETARCH" = "amd64" ]; then pip install "graphrag<=0.3.6" future; fi
 
 # Clean up
 RUN apt-get autoremove \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf ~/.cache
+
+RUN pip install kubernetes
 
 CMD ["python", "app.py"]
 
@@ -62,34 +60,26 @@ FROM lite AS full
 # Additional dependencies for full version
 RUN apt-get update -qqy && \
     apt-get install -y --no-install-recommends \
-      tesseract-ocr \
-      tesseract-ocr-jpn \
-      libsm6 \
-      libxext6 \
-      libreoffice \
-      ffmpeg \
-      libmagic-dev
+    tesseract-ocr \
+    tesseract-ocr-jpn \
+    libsm6 \
+    libxext6 \
+    libreoffice \
+    ffmpeg \
+    libmagic-dev
 
 # Install torch and torchvision for unstructured
-RUN --mount=type=ssh  \
-    --mount=type=cache,target=/root/.cache/pip  \
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # Install additional pip packages
-RUN --mount=type=ssh  \
-    --mount=type=cache,target=/root/.cache/pip  \
-    pip install -e "libs/kotaemon[adv]" \
+RUN pip install -e "libs/kotaemon[adv]" \
     && pip install unstructured[all-docs]
 
 # Install lightRAG
 ENV USE_LIGHTRAG=true
-RUN --mount=type=ssh  \
-    --mount=type=cache,target=/root/.cache/pip  \
-    pip install aioboto3 nano-vectordb ollama xxhash "lightrag-hku<=0.0.8"
+RUN pip install aioboto3 nano-vectordb ollama xxhash "lightrag-hku<=0.0.8"
 
-RUN --mount=type=ssh  \
-    --mount=type=cache,target=/root/.cache/pip  \
-    pip install "docling<=2.5.2"
+RUN pip install "docling<=2.5.2"
 
 # Clean up
 RUN apt-get autoremove \
@@ -97,7 +87,17 @@ RUN apt-get autoremove \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf ~/.cache
 
+# Create required directories and set environment variables
+RUN mkdir -p /app/nltk_data && chmod -R g+rwX /app/nltk_data
+ENV NLTK_DATA=/app/nltk_data
+
 # Download nltk packages as required for unstructured
-RUN python -c "from unstructured.nlp.tokenize import _download_nltk_packages_if_not_present; _download_nltk_packages_if_not_present()"
+#  nltk.download("averaged_perceptron_tagger_eng", quiet=True)
+# nltk.download("punkt_tab", quiet=True)
+RUN python -m nltk.downloader averaged_perceptron_tagger_eng punkt_tab
+# RUN python -c "from unstructured.nlp.tokenize import _download_nltk_packages_if_not_present; _download_nltk_packages_if_not_present()"
+
+# Set the working directory permissions to allow any assigned user
+RUN chown -R 1001:0 /app && chmod -R g+rwX /app
 
 CMD ["python", "app.py"]

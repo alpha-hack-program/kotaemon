@@ -7,6 +7,30 @@ from decouple import config
 from ktem.utils.lang import SUPPORTED_LANGUAGE_MAP
 from theflow.settings.default import *  # noqa
 
+from kubernetes import client, config as k8s_config
+
+# Load in-cluster Kubernetes configuration but if it fails, load local configuration
+try:
+    k8s_config.load_incluster_config()
+except k8s_config.config_exception.ConfigException:
+    k8s_config.load_kube_config()
+
+# Get prediction URL by name and namespace
+def get_predictor_url(namespace, predictor_name):
+    api_instance = client.CustomObjectsApi()
+    try:
+        predictor = api_instance.get_namespaced_custom_object(
+            group="serving.kserve.io",
+            version="v1beta1",
+            namespace=namespace,
+            plural="inferenceservices",
+            name=predictor_name
+        )
+        return f"{predictor['status']['url']}"
+    except Exception as e:
+        print(f"Error retrieving predictor {predictor_name} in namespace {namespace}: {e}")
+        return None
+
 cur_frame = currentframe()
 if cur_frame is None:
     raise ValueError("Cannot get the current frame.")
@@ -156,6 +180,71 @@ if config("OPENAI_API_KEY", default=""):
             ),
             "timeout": 10,
             "context_length": 8191,
+        },
+        "default": True,
+    }
+
+# doc-bot local openai model and embeddings
+# Get NAMESPACE from environment
+NAMESPACE = os.getenv('NAMESPACE')
+if not NAMESPACE:
+    # Get the current namespace or error if not found
+    try:
+        with open("/var/run/secrets/kubernetes.io/serviceaccount/namespace", "r") as f:
+            NAMESPACE = f.read().strip()
+    except FileNotFoundError:
+        raise ValueError("NAMESPACE environment variable not set and could not get current namespace.")
+
+# Get LOCAL_OPENAI_CHAT_PREDICTOR_NAME from environment
+LOCAL_OPENAI_CHAT_PREDICTOR_NAME = os.getenv('LOCAL_OPENAI_CHAT_PREDICTOR_NAME')
+if LOCAL_OPENAI_CHAT_PREDICTOR_NAME:
+    LOCAL_OPENAI_CHAT_PREDICTOR_URL = get_predictor_url(namespace=NAMESPACE, predictor_name=LOCAL_OPENAI_CHAT_PREDICTOR_NAME)
+    if LOCAL_OPENAI_CHAT_PREDICTOR_URL:
+        os.environ['LOCAL_OPENAI_API_BASE'] = f"{LOCAL_OPENAI_CHAT_PREDICTOR_URL}/v1"
+    else:
+        raise ValueError("LOCAL_OPENAI_API_BASE could not set.")
+
+print(f"LOCAL_OPENAI_CHAT_PREDICTOR_NAME: {LOCAL_OPENAI_CHAT_PREDICTOR_NAME}")
+print(f"LOCAL_OPENAI_CHAT_PREDICTOR_URL: {LOCAL_OPENAI_CHAT_PREDICTOR_URL}")
+LOCAL_OPENAI_API_BASE = config("LOCAL_OPENAI_API_BASE", default="")
+print(f"LOCAL_OPENAI_API_BASE: {LOCAL_OPENAI_API_BASE}")
+
+# Get LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_NAME from environment
+LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_NAME = os.getenv('LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_NAME')
+if LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_NAME:
+    LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_URL = get_predictor_url(namespace=NAMESPACE, predictor_name=LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_NAME)
+    if LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_URL:
+        os.environ['LOCAL_OPENAI_EMBEDDINGS_API_BASE'] = f"{LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_URL}/v1"
+    else:
+        raise ValueError("LOCAL_OPENAI_EMBEDDINGS_API_BASE could not set.")
+
+print(f"LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_NAME: {LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_NAME}")
+print(f"LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_URL: {LOCAL_OPENAI_EMBEDDINGS_PREDICTOR_URL}")
+LOCAL_OPENAI_EMBEDDINGS_API_BASE = config("LOCAL_OPENAI_EMBEDDINGS_API_BASE", default="")
+print(f"LOCAL_OPENAI_EMBEDDINGS_API_BASE: {LOCAL_OPENAI_EMBEDDINGS_API_BASE}")
+
+if config("LOCAL_OPENAI_API_BASE", default=""):
+    KH_LLMS["local-openai"] = {
+        "spec": {
+            "__type__": "kotaemon.llms.ChatOpenAI",
+            "temperature": 0,
+            "base_url": config("LOCAL_OPENAI_API_BASE", default="")
+            or "https://<FILL_ME>/v1",
+            "api_key": config("LOCAL_OPENAI_API_KEY", default="EMPTY"),
+            "model": config("LOCAL_OPENAI_CHAT_MODEL", default="/mnt/models/"),
+            "timeout": 20,
+        },
+        "default": True,
+    }
+    KH_EMBEDDINGS["local-openai"] = {
+        "spec": {
+            "__type__": "kotaemon.embeddings.OpenAIEmbeddings",
+            "base_url": config("LOCAL_OPENAI_EMBEDDINGS_API_BASE", default="https://<FILL_ME>/v1"),
+            "api_key": config("LOCAL_OPENAI_EMBEDDINGS_API_KEY", default="EMPTY"),
+            "model": config(
+                "LOCAL_OPENAI_EMBEDDINGS_MODEL", default="nomic-embed-text-v1"
+            ),
+            "timeout": 10,
         },
         "default": True,
     }
