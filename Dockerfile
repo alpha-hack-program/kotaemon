@@ -92,10 +92,8 @@ RUN mkdir -p /app/nltk_data && chmod -R g+rwX /app/nltk_data
 ENV NLTK_DATA=/app/nltk_data
 
 # Download nltk packages as required for unstructured
-#  nltk.download("averaged_perceptron_tagger_eng", quiet=True)
-# nltk.download("punkt_tab", quiet=True)
-RUN python -m nltk.downloader averaged_perceptron_tagger_eng punkt_tab
 # RUN python -c "from unstructured.nlp.tokenize import _download_nltk_packages_if_not_present; _download_nltk_packages_if_not_present()"
+RUN python -m nltk.downloader averaged_perceptron_tagger_eng punkt_tab
 
 # Set the working directory permissions to allow any assigned user
 RUN chown -R 1001:0 /app && chmod -R g+rwX /app
