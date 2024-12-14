@@ -27,6 +27,12 @@ ENV TARGETARCH=${TARGETARCH}
 # Create working directory
 WORKDIR /app
 
+# ALPHA: Adjust permissions for OpenShift's random user ID
+RUN mkdir -p /app/libs && \
+    mkdir -p /app/scripts && \
+    chmod -R g+rwX /app && \
+    chown -R 1001:0 /app
+
 # Download pdfjs
 COPY scripts/download_pdfjs.sh /app/scripts/download_pdfjs.sh
 RUN chmod +x /app/scripts/download_pdfjs.sh
@@ -37,6 +43,9 @@ RUN bash scripts/download_pdfjs.sh $PDFJS_PREBUILT_DIR
 COPY . /app
 COPY .env.example /app/.env
 
+# ALPHA: Adjust permissions after copying files
+RUN chmod -R g+rwX /app && chown -R 1001:0 /app
+
 # Install pip packages
 RUN pip install -e "libs/kotaemon" \
     && pip install -e "libs/ktem" \
@@ -44,13 +53,14 @@ RUN pip install -e "libs/kotaemon" \
 
 RUN if [ "$TARGETARCH" = "amd64" ]; then pip install "graphrag<=0.3.6" future; fi
 
+# ALPHA: we need kubernetes
+RUN pip install kubernetes
+
 # Clean up
 RUN apt-get autoremove \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf ~/.cache
-
-RUN pip install kubernetes
 
 CMD ["python", "app.py"]
 
